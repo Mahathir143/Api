@@ -8,6 +8,9 @@ using Api.Services;
 using Api.Middleware;
 using Serilog;
 using System.Text;
+using System.Reflection;
+using Microsoft.OpenApi.Models;
+using Api.Filters;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -92,27 +95,74 @@ builder.Services.AddMemoryCache();
 // Add controllers
 builder.Services.AddControllers();
 
-// Add API documentation
+// Add API documentation with enhanced configuration
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
-    c.SwaggerDoc("v1", new() { Title = "SecureAuth API", Version = "v1" });
-    c.AddSecurityDefinition("Bearer", new()
+    c.SwaggerDoc("v1", new OpenApiInfo
     {
-        Type = Microsoft.OpenApi.Models.SecuritySchemeType.Http,
-        Scheme = "bearer",
-        BearerFormat = "JWT"
+        Title = "SecureAuth API",
+        Version = "v1",
+        Description = "A comprehensive authentication and authorization API",
+        Contact = new OpenApiContact
+        {
+            Name = "API Support",
+            Email = "support@secureauth.com",
+            Url = new Uri("https://github.com/Mahathir143/Api")
+        },
+        License = new OpenApiLicense
+        {
+            Name = "MIT License",
+            Url = new Uri("https://opensource.org/licenses/MIT")
+        }
     });
-    c.AddSecurityRequirement(new()
+
+    // Add JWT Bearer authentication
+    c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+    {
+        Type = SecuritySchemeType.Http,
+        Scheme = "bearer",
+        BearerFormat = "JWT",
+        Name = "Authorization",
+        In = ParameterLocation.Header,
+        Description = "Enter 'Bearer {token}' (without quotes)"
+    });
+
+    c.AddSecurityRequirement(new OpenApiSecurityRequirement
     {
         {
-            new()
+            new OpenApiSecurityScheme
             {
-                Reference = new() { Type = Microsoft.OpenApi.Models.ReferenceType.SecurityScheme, Id = "Bearer" }
+                Reference = new OpenApiReference
+                {
+                    Type = ReferenceType.SecurityScheme,
+                    Id = "Bearer"
+                }
             },
             new string[] {}
         }
     });
+
+    // Include XML comments if available
+    var xmlFile = $"{Assembly.GetExecutingAssembly().GetName().Name}.xml";
+    var xmlPath = Path.Combine(AppContext.BaseDirectory, xmlFile);
+    if (File.Exists(xmlPath))
+    {
+        c.IncludeXmlComments(xmlPath);
+    }
+
+    // Add custom operation filters for better documentation
+    c.OperationFilter<SwaggerOperationFilter>();
+
+    // Enable annotations
+    c.EnableAnnotations();
+
+    // Group endpoints by tags
+    c.TagActionsBy(api => new[] { api.GroupName ?? api.ActionDescriptor.RouteValues["controller"] });
+    c.DocInclusionPredicate((name, api) => true);
+
+    // Add example values
+    c.SchemaFilter<SwaggerSchemaFilter>();
 });
 
 // Configure CORS
@@ -132,8 +182,37 @@ var app = builder.Build();
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {
-    app.UseSwagger();
-    app.UseSwaggerUI();
+    app.UseSwagger(c =>
+    {
+        c.SerializeAsV2 = false;
+        c.RouteTemplate = "swagger/{documentName}/swagger.json";
+    });
+
+    app.UseSwaggerUI(c =>
+    {
+        c.SwaggerEndpoint("/swagger/v1/swagger.json", "SecureAuth API v1");
+        c.RoutePrefix = "swagger";
+        c.DocumentTitle = "SecureAuth API Documentation";
+        c.DocExpansion(Swashbuckle.AspNetCore.SwaggerUI.DocExpansion.List);
+        c.DisplayRequestDuration();
+        c.EnableFilter();
+        c.EnableDeepLinking();
+        c.ShowExtensions();
+        c.EnableValidator();
+        c.SupportedSubmitMethods(
+            Swashbuckle.AspNetCore.SwaggerUI.SubmitMethod.Get,
+            Swashbuckle.AspNetCore.SwaggerUI.SubmitMethod.Post,
+            Swashbuckle.AspNetCore.SwaggerUI.SubmitMethod.Put,
+            Swashbuckle.AspNetCore.SwaggerUI.SubmitMethod.Delete,
+            Swashbuckle.AspNetCore.SwaggerUI.SubmitMethod.Patch
+        );
+
+        // Custom CSS for better styling (optional)
+        c.InjectStylesheet("/swagger-ui/custom.css");
+
+        // Add custom JavaScript (optional)
+        c.InjectJavascript("/swagger-ui/custom.js");
+    });
 }
 
 app.UseHttpsRedirection();
@@ -148,6 +227,9 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
+
+// Serve static files for Swagger UI customization
+app.UseStaticFiles();
 
 // Ensure database is created and seeded
 using (var scope = app.Services.CreateScope())

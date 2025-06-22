@@ -1,5 +1,6 @@
 ﻿using Api.Models;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
 
 namespace Api.Data
 {
@@ -8,9 +9,8 @@ namespace Api.Data
         public static async Task SeedAsync(ApplicationDbContext context, UserManager<ApplicationUser> userManager, RoleManager<ApplicationRole> roleManager)
         {
             await SeedRolesAsync(roleManager);
-            await SeedUsersAsync(userManager);
+            await SeedUsersAsync(userManager, roleManager);
             await SeedMenusAsync(context);
-            await SeedConfigurationsAsync(context);
             await SeedRoleMenusAsync(context, roleManager);
         }
 
@@ -18,9 +18,9 @@ namespace Api.Data
         {
             var roles = new[]
             {
-                new ApplicationRole { Name = "Admin", Description = "System Administrator", SortOrder = 1 },
-                new ApplicationRole { Name = "Moderator", Description = "Content Moderator", SortOrder = 2 },
-                new ApplicationRole { Name = "User", Description = "Regular User", SortOrder = 3 }
+                new ApplicationRole { Name = "Admin", Description = "Administrator with full access", SortOrder = 1 },
+                new ApplicationRole { Name = "Moderator", Description = "Moderator with limited access", SortOrder = 2 },
+                new ApplicationRole { Name = "User", Description = "Regular user", SortOrder = 3 }
             };
 
             foreach (var role in roles)
@@ -32,43 +32,24 @@ namespace Api.Data
             }
         }
 
-        private static async Task SeedUsersAsync(UserManager<ApplicationUser> userManager)
+        private static async Task SeedUsersAsync(UserManager<ApplicationUser> userManager, RoleManager<ApplicationRole> roleManager)
         {
-            var adminUser = new ApplicationUser
+            if (!userManager.Users.Any())
             {
-                UserName = "admin@secureauth.com",
-                Email = "admin@secureauth.com",
-                FirstName = "System",
-                LastName = "Administrator",
-                EmailConfirmed = true,
-                IsActive = true
-            };
+                var adminUser = new ApplicationUser
+                {
+                    UserName = "admin@example.com",
+                    Email = "admin@example.com",
+                    FirstName = "System",
+                    LastName = "Administrator",
+                    EmailConfirmed = true,
+                    IsActive = true
+                };
 
-            if (await userManager.FindByEmailAsync(adminUser.Email) == null)
-            {
-                var result = await userManager.CreateAsync(adminUser, "Admin@123456");
+                var result = await userManager.CreateAsync(adminUser, "Admin123!@#");
                 if (result.Succeeded)
                 {
                     await userManager.AddToRoleAsync(adminUser, "Admin");
-                }
-            }
-
-            var testUser = new ApplicationUser
-            {
-                UserName = "mahathir143@example.com",
-                Email = "mahathir143@example.com",
-                FirstName = "Mahathir",
-                LastName = "Test User",
-                EmailConfirmed = true,
-                IsActive = true
-            };
-
-            if (await userManager.FindByEmailAsync(testUser.Email) == null)
-            {
-                var result = await userManager.CreateAsync(testUser, "Test@123456");
-                if (result.Succeeded)
-                {
-                    await userManager.AddToRoleAsync(testUser, "User");
                 }
             }
         }
@@ -79,46 +60,38 @@ namespace Api.Data
             {
                 var menus = new List<Tbl_Menu>
                 {
-                    new() { Id = 1, Title = "Dashboard", Icon = "fas fa-tachometer-alt", Url = "/dashboard", SortOrder = 1 },
-                    new() { Id = 2, Title = "User Management", Icon = "fas fa-users", Url = "#", SortOrder = 2 },
-                    new() { Id = 3, Title = "System", Icon = "fas fa-cogs", Url = "#", SortOrder = 3 },
-                    new() { Id = 4, Title = "Security", Icon = "fas fa-shield-alt", Url = "#", SortOrder = 4 },
-                    
-                    // User Management submenu
-                    new() { Id = 21, Title = "Users", Icon = "fas fa-user", Url = "/users", ParentId = 2, SortOrder = 1 },
-                    new() { Id = 22, Title = "Roles", Icon = "fas fa-user-tag", Url = "/roles", ParentId = 2, SortOrder = 2 },
-                    
-                    // System submenu
-                    new() { Id = 31, Title = "Menu Management", Icon = "fas fa-sitemap", Url = "/menus", ParentId = 3, SortOrder = 1 },
-                    new() { Id = 32, Title = "Settings", Icon = "fas fa-cog", Url = "/settings", ParentId = 3, SortOrder = 2 },
-                    new() { Id = 33, Title = "Audit Logs", Icon = "fas fa-history", Url = "/audit-logs", ParentId = 3, SortOrder = 3 },
-                    
-                    // Security submenu
-                    new() { Id = 41, Title = "2FA Setup", Icon = "fas fa-mobile-alt", Url = "/2fa-setup", ParentId = 4, SortOrder = 1 },
-                    new() { Id = 42, Title = "Login Attempts", Icon = "fas fa-sign-in-alt", Url = "/login-attempts", ParentId = 4, SortOrder = 2 }
+                    // Main menus (no explicit Id values)
+                    new() { Title = "Dashboard", Icon = "fas fa-tachometer-alt", Url = "/dashboard", SortOrder = 1 },
+                    new() { Title = "User Management", Icon = "fas fa-users", Url = "#", SortOrder = 2 },
+                    new() { Title = "System", Icon = "fas fa-cogs", Url = "#", SortOrder = 3 },
+                    new() { Title = "Security", Icon = "fas fa-shield-alt", Url = "#", SortOrder = 4 }
                 };
 
                 context.Tbl_Menus.AddRange(menus);
                 await context.SaveChangesAsync();
-            }
-        }
 
-        private static async Task SeedConfigurationsAsync(ApplicationDbContext context)
-        {
-            if (!context.Tbl_Configurations.Any())
-            {
-                var configs = new List<Tbl_Configuration>
+                // Now add submenus with ParentId references
+                var userManagementMenu = await context.Tbl_Menus.FirstAsync(m => m.Title == "User Management");
+                var systemMenu = await context.Tbl_Menus.FirstAsync(m => m.Title == "System");
+                var securityMenu = await context.Tbl_Menus.FirstAsync(m => m.Title == "Security");
+
+                var subMenus = new List<Tbl_Menu>
                 {
-                    new() { Key = "RecaptchaSiteKey", Value = "6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI", Category = "Security", IsClientVisible = true, Description = "Google reCAPTCHA Site Key" },
-                    new() { Key = "ApplicationName", Value = "SecureAuth PWA", Category = "General", IsClientVisible = true, Description = "Application Name" },
-                    new() { Key = "CompanyName", Value = "Your Company Name", Category = "General", IsClientVisible = true, Description = "Company Name" },
-                    new() { Key = "Version", Value = "1.0.0", Category = "General", IsClientVisible = true, Description = "Application Version" },
-                    new() { Key = "SessionTimeoutHours", Value = "2", Category = "Security", IsClientVisible = true, Description = "Session timeout in hours" },
-                    new() { Key = "MaxLoginAttempts", Value = "3", Category = "Security", IsClientVisible = true, Description = "Maximum login attempts before lockout" },
-                    new() { Key = "LockoutDurationMinutes", Value = "5", Category = "Security", IsClientVisible = true, Description = "Account lockout duration in minutes" }
+                    // User Management submenu
+                    new() { Title = "Users", Icon = "fas fa-user", Url = "/users", ParentId = userManagementMenu.Id, SortOrder = 1 },
+                    new() { Title = "Roles", Icon = "fas fa-user-tag", Url = "/roles", ParentId = userManagementMenu.Id, SortOrder = 2 },
+                    
+                    // System submenu
+                    new() { Title = "Menu Management", Icon = "fas fa-sitemap", Url = "/menus", ParentId = systemMenu.Id, SortOrder = 1 },
+                    new() { Title = "Settings", Icon = "fas fa-cog", Url = "/settings", ParentId = systemMenu.Id, SortOrder = 2 },
+                    new() { Title = "Audit Logs", Icon = "fas fa-history", Url = "/audit-logs", ParentId = systemMenu.Id, SortOrder = 3 },
+                    
+                    // Security submenu
+                    new() { Title = "2FA Setup", Icon = "fas fa-mobile-alt", Url = "/2fa-setup", ParentId = securityMenu.Id, SortOrder = 1 },
+                    new() { Title = "Login Attempts", Icon = "fas fa-sign-in-alt", Url = "/login-attempts", ParentId = securityMenu.Id, SortOrder = 2 }
                 };
 
-                context.Tbl_Configurations.AddRange(configs);
+                context.Tbl_Menus.AddRange(subMenus);
                 await context.SaveChangesAsync();
             }
         }
@@ -132,16 +105,16 @@ namespace Api.Data
 
                 if (adminRole != null && userRole != null)
                 {
-                    var menuIds = context.Tbl_Menus.Select(m => m.Id).ToList();
+                    var allMenus = await context.Tbl_Menus.ToListAsync();
                     var roleMenus = new List<Tbl_RoleMenu>();
 
                     // Admin has access to all menus
-                    foreach (var menuId in menuIds)
+                    foreach (var menu in allMenus)
                     {
                         roleMenus.Add(new Tbl_RoleMenu
                         {
                             RoleId = adminRole.Id,
-                            MenuId = menuId,
+                            MenuId = menu.Id,
                             CanView = true,
                             CanEdit = true,
                             CanDelete = true
@@ -149,7 +122,11 @@ namespace Api.Data
                     }
 
                     // User has limited access
-                    var userMenuIds = new[] { 1, 4, 41 }; // Dashboard, Security, 2FA Setup
+                    var dashboardMenu = allMenus.First(m => m.Title == "Dashboard");
+                    var securityMenu = allMenus.First(m => m.Title == "Security");
+                    var twoFactorMenu = allMenus.First(m => m.Title == "2FA Setup");
+
+                    var userMenuIds = new[] { dashboardMenu.Id, securityMenu.Id, twoFactorMenu.Id };
                     foreach (var menuId in userMenuIds)
                     {
                         roleMenus.Add(new Tbl_RoleMenu
